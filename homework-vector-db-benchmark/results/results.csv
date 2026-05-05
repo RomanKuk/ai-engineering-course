@@ -1,0 +1,5 @@
+db,model,host,port,database,collection,index_time_sec,disk_mb,latency_p50_ms,latency_p95_ms,latency_p99_ms,recall_at_10,mrr_at_10,num_docs,num_queries,top_k,warmup_queries,num_repeatsfaiss_flat,text-embedding-3-small,localhost,,,,0.92,0.0,195.519,200.697,208.302,0.9602,0.8798,522931,10000,10,50,3
+faiss_hnsw,text-embedding-3-small,localhost,,,,659.33,0.0,1.225,1.626,1.804,0.96,0.8798,522931,10000,10,50,3
+qdrant,text-embedding-3-small,localhost,6333,,,1328.87,0.0,31.976,34.957,36.839,0.96,0.8797,522931,10000,10,50,3
+chroma,text-embedding-3-small,localhost,,,,852.29,3243.1,1.98,2.236,2.355,0.9584,0.8782,522931,10000,10,50,3
+pgvector,text-embedding-3-small,localhost,5432,bench,,4404.37,8262.6,64.223,69.286,71.248,0.9589,0.8784,522931,10000,10,50,3
