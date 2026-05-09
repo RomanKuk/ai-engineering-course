@@ -1,0 +1,10 @@
+datasets>=2.18
+openai>=1.30
+numpy>=1.26
+faiss-cpu>=1.8
+rank_bm25>=0.2
+psutil>=5.9
+matplotlib>=3.8
+pandas>=2.2
+tqdm>=4.66
+python-dotenv>=1.0

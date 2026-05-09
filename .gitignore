@@ -11,3 +11,6 @@ data/*_ids_*.json
 data/chroma_probe/
 data/chroma_probe_2/
 data/chroma_store/
+CLAUDE.md
+settings.local.json
+homework-rag/template/cache/**
