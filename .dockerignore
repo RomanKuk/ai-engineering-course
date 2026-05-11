@@ -1,0 +1,22 @@
+# flyctl launch added from .gitignore
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.env
+**/results/benchmark_terminal.png
+**/data/corpus.jsonl
+**/data/queries.jsonl
+**/data/qrels.tsv
+**/data/*.npy
+**/data/*_ids_*.json
+**/data/chroma_probe
+**/data/chroma_probe_2
+**/data/chroma_store
+**/CLAUDE.md
+**/settings.local.json
+**/homework-rag/template/cache/**
+
+# flyctl launch added from homework-vector-db-benchmark/data/.gitignore
+homework-vector-db-benchmark/data/**/*
+!homework-vector-db-benchmark/data/**/.gitignore
+fly.toml

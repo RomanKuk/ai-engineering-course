@@ -1,0 +1,24 @@
+# Environment
+.env
+
+# Virtual environment
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Cost tracking DB
+costs.db
+
+# Logs
+*.log
+
+# Data files — keep out of repo
+data/*.pdf
+data/*.txt
+data/*.txt.example
+
+# Fly.io — remove this line if you want to track fly.toml
+fly.toml
