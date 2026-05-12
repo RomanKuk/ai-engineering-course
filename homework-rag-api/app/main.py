@@ -181,7 +181,7 @@ async def chat_stream(body: ChatRequest, request: Request, key_info: dict = Depe
                     latency_ms = int((time.time() - start_time) * 1000)
                     cost = calculate_cost(result.model, result.input_tokens, result.output_tokens)
 
-                    deduct_tokens(api_key, result.input_tokens + result.output_tokens)
+                    deduct_tokens(api_key, result.input_tokens + result.output_tokens, rate_limit)
 
                     log_request(
                         api_key=api_key,

@@ -58,7 +58,7 @@ def main():
     chunks = chunk_text(text)
     print(f"Chunks: {len(chunks)}")
 
-    model = SentenceTransformer(MODEL_NAME)
+    model = SentenceTransformer(MODEL_NAME, token=os.getenv("HF_TOKEN"))
     embeddings = model.encode(chunks, normalize_embeddings=True, show_progress_bar=True)
 
     client = QdrantClient(url=os.getenv("QDRANT_URL"), api_key=os.getenv("QDRANT_API_KEY"))

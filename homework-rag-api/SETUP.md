@@ -184,6 +184,7 @@ curl -X POST http://localhost:8000/index/rebuild -H "X-API-Key: demo-enterprise-
 fly auth login
 fly launch --no-deploy          # creates app, updates fly.toml
 fly secrets set \
+  HF_TOKEN=hf_... \
   OPENAI_API_KEY=sk-... \
   QDRANT_URL=https://... \
   QDRANT_API_KEY=... \

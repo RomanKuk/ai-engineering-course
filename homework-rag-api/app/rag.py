@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import os
+from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer
 from qdrant_client import AsyncQdrantClient
+
+load_dotenv()
 
 EMBEDDING_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
 CHUNKS_COLLECTION = "chunks_collection"
 VECTOR_DIM = 384
 
-_model = SentenceTransformer(EMBEDDING_MODEL)
+_hf_token = os.getenv("HF_TOKEN")
+_model = SentenceTransformer(EMBEDDING_MODEL, token=_hf_token)
 _qdrant: AsyncQdrantClient | None = None
 
 
