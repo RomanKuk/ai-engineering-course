@@ -21,6 +21,10 @@ def test_eval_runner_returns_baseline_and_crew_summaries() -> None:
         "tool_selection_accuracy",
         "groundedness",
         "inter_agent_overhead_pct",
+        "intent_breakdown",
     ]:
         assert field in baseline
         assert field in crew
+
+    assert isinstance(baseline["intent_breakdown"], dict)
+    assert isinstance(crew["intent_breakdown"], dict)

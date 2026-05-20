@@ -1,8 +1,37 @@
 from __future__ import annotations
 
 import httpx
+import json
 import streamlit as st
 import uuid
+
+
+def _cases_to_csv(cases: list[dict]) -> str:
+    headers = [
+        "id",
+        "message",
+        "expected_intent",
+        "actual_intent",
+        "expected_route",
+        "actual_route",
+        "latency_ms",
+        "success",
+        "tool_selection_ok",
+        "groundedness",
+        "required_tools",
+        "tools_used",
+    ]
+    rows = [",".join(headers)]
+    for case in cases:
+        values = []
+        for header in headers:
+            value = case.get(header, "")
+            if isinstance(value, list):
+                value = "|".join(str(v) for v in value)
+            text = str(value).replace('"', '""')
+            values.append(f'"{text}"')
+        rows.append(",".join(values))
+    return "\n".join(rows)
 
 
 st.set_page_config(page_title="Personal Finance Coach", layout="wide")
@@ -124,9 +153,51 @@ with eval_tab:
                 }
             )
 
+            baseline_cases = data.get("baseline", {}).get("cases", [])
+            crew_cases = data.get("crew", {}).get("cases", [])
+
+            st.markdown("### Intent Breakdown")
+            baseline_intents = baseline_summary.get("intent_breakdown", {})
+            crew_intents = crew_summary.get("intent_breakdown", {})
+            all_intents = sorted(set(baseline_intents.keys()) | set(crew_intents.keys()))
+            if all_intents:
+                st.table(
+                    {
+                        "intent": all_intents,
+                        "baseline_success_rate": [
+                            baseline_intents.get(intent, {}).get("success_rate") for intent in all_intents
+                        ],
+                        "crew_success_rate": [crew_intents.get(intent, {}).get("success_rate") for intent in all_intents],
+                        "baseline_avg_latency_ms": [
+                            baseline_intents.get(intent, {}).get("avg_latency_ms") for intent in all_intents
+                        ],
+                        "crew_avg_latency_ms": [crew_intents.get(intent, {}).get("avg_latency_ms") for intent in all_intents],
+                    }
+                )
+
+            st.markdown("### Download Results")
+            st.download_button(
+                label="Download full eval JSON",
+                data=json.dumps(data, indent=2),
+                file_name="eval_results.json",
+                mime="application/json",
+            )
+            st.download_button(
+                label="Download baseline cases CSV",
+                data=_cases_to_csv(baseline_cases),
+                file_name="eval_baseline_cases.csv",
+                mime="text/csv",
+            )
+            st.download_button(
+                label="Download crew cases CSV",
+                data=_cases_to_csv(crew_cases),
+                file_name="eval_crew_cases.csv",
+                mime="text/csv",
+            )
+
             with st.expander("Baseline case results"):
-                st.json(data.get("baseline", {}).get("cases", []))
+                st.json(baseline_cases)
             with st.expander("Crew case results"):
-                st.json(data.get("crew", {}).get("cases", []))
+                st.json(crew_cases)
         except Exception as exc:
             st.error(f"Could not run evaluation: {exc}")

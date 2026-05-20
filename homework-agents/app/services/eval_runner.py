@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from statistics import median
 from time import perf_counter
-from typing import Any
+from typing import Any, Optional
 
 
 def _flatten_numbers(value: Any) -> list[float]:
@@ -46,7 +45,7 @@ class EvalRunner:
     def load_golden_set(self) -> list[dict]:
         return json.loads(self.golden_path.read_text(encoding="utf-8"))
 
-    def run(self, max_cases: int | None = None) -> dict:
+    def run(self, max_cases: Optional[int] = None) -> dict:
         cases = self.load_golden_set()
         if max_cases is not None:
             cases = cases[: max(1, max_cases)]
@@ -70,6 +69,7 @@ class EvalRunner:
         grounded_scores: list[float] = []
         overhead_values: list[float] = []
         agent_costs: dict[str, list[float]] = {"router": [], "analyst": [], "coach": []}
+        intent_stats: dict[str, dict[str, float]] = {}
 
         for case in cases:
             started = perf_counter()
@@ -87,6 +87,21 @@ class EvalRunner:
             route_ok = True if not route_expected else response.get("route") == route_expected
             success_scores.append(1.0 if (intent_ok and route_ok and tool_ok) else 0.0)
 
+            expected_intent = str(case.get("expected_intent", "unknown"))
+            stats = intent_stats.setdefault(
+                expected_intent,
+                {
+                    "count": 0.0,
+                    "success_sum": 0.0,
+                    "tool_sum": 0.0,
+                    "grounded_sum": 0.0,
+                    "latency_sum": 0.0,
+                },
+            )
+            stats["count"] += 1.0
+            stats["success_sum"] += success_scores[-1]
+            stats["tool_sum"] += 1.0 if tool_ok else 0.0
+
             answer_numbers = _extract_answer_numbers(response.get("answer", ""))
             tool_numbers = _flatten_numbers(response.get("tool_outputs", {}))
             if response.get("guardrail_applied"):
@@ -101,6 +116,8 @@ class EvalRunner:
                     if any(abs(num - t) < 0.01 for t in tool_numbers):
                         matches += 1
                 grounded_scores.append(matches / max(1, len(answer_numbers)))
+            stats["grounded_sum"] += grounded_scores[-1]
+            stats["latency_sum"] += latency_ms
 
             message = case.get("message", "")
             token_est = (len(message) + len(response.get("answer", "")) + len(json.dumps(response.get("tool_outputs", {})))) / 4.0
@@ -143,6 +160,16 @@ class EvalRunner:
             "inter_agent_overhead_pct": round(sum(overhead_values) / max(1, len(overhead_values)), 2),
             "cost_breakdown_by_agent": {
                 key: round(sum(values) / max(1, len(values)), 6) for key, values in agent_costs.items()
+            },
+            "intent_breakdown": {
+                intent: {
+                    "count": int(values["count"]),
+                    "success_rate": round(values["success_sum"] / max(1.0, values["count"]), 4),
+                    "tool_selection_accuracy": round(values["tool_sum"] / max(1.0, values["count"]), 4),
+                    "groundedness": round(values["grounded_sum"] / max(1.0, values["count"]), 4),
+                    "avg_latency_ms": round(values["latency_sum"] / max(1.0, values["count"]), 2),
+                }
+                for intent, values in intent_stats.items()
             },
         }
         return {
