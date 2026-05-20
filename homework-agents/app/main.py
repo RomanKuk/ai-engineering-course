@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Optional
 
 from fastapi import FastAPI
 
@@ -8,6 +9,7 @@ from app.schemas import ChatRequest, ChatResponse
 from app.services.analytics import load_analytics, summary
 from app.services.baseline_runtime import BaselineRuntime
 from app.services.crew_runtime import CrewRuntime
+from app.services.eval_runner import EvalRunner
 from app.tools import (
     list_tools,
     tool_compare_category_between_periods,
@@ -23,6 +25,11 @@ app = FastAPI(title="Personal Finance Coach")
 csv_path = Path(__file__).resolve().parents[1] / "starter" / "data" / "transactions.csv"
 runtime = BaselineRuntime(csv_path)
 crew_runtime = CrewRuntime(csv_path)
+eval_runner = EvalRunner(
+    Path(__file__).resolve().parents[1] / "evals" / "golden_set.json",
+    baseline_runtime=runtime,
+    crew_runtime=crew_runtime,
+)
 
 
 @app.get("/health")
@@ -76,3 +83,15 @@ def debug_tool_call(body: dict) -> dict:
         return {"ok": True, "result": tool_project_month_end_balance(csv_path)}
 
     return {"ok": False, "error": f"Unknown tool '{tool}'"}
+
+
+@app.post("/eval/run")
+def run_eval(body: Optional[dict] = None) -> dict:
+    body = body or {}
+    max_cases = body.get("max_cases")
+    if max_cases is not None:
+        try:
+            max_cases = int(max_cases)
+        except Exception:
+            max_cases = None
+    return eval_runner.run(max_cases=max_cases)

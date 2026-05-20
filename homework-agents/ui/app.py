@@ -23,46 +23,110 @@ if st.sidebar.button("New Session"):
 
 prompt = st.text_area("Your query", placeholder="How much did I spend on coffee last week?")
 
-if st.button("Submit"):
-    if not prompt.strip():
-        st.warning("Please enter a question.")
-    else:
-        payload = {
-            "message": prompt,
-            "architecture": architecture,
-            "session_id": st.session_state["session_id"],
-        }
+chat_tab, eval_tab = st.tabs(["Chat", "Eval"])
+
+with chat_tab:
+    if st.button("Submit"):
+        if not prompt.strip():
+            st.warning("Please enter a question.")
+        else:
+            payload = {
+                "message": prompt,
+                "architecture": architecture,
+                "session_id": st.session_state["session_id"],
+            }
+            try:
+                response = httpx.post(f"{api_base_url}/chat", json=payload, timeout=20.0)
+                response.raise_for_status()
+                data = response.json()
+
+                st.success("Response received")
+                st.write(f"Architecture: {data.get('architecture', architecture)}")
+                st.write(f"Answer: {data.get('answer', '')}")
+
+                with st.expander("Trace"):
+                    st.json(
+                        {
+                            "session_id": data.get("session_id"),
+                            "intent": data.get("intent"),
+                            "intent_reason": data.get("intent_reason"),
+                            "route": data.get("route"),
+                            "guardrail_applied": data.get("guardrail_applied"),
+                            "resolved_category": data.get("resolved_category"),
+                            "resolved_period": data.get("resolved_period"),
+                            "context": data.get("context", {}),
+                            "tools_used": data.get("tools_used", []),
+                            "tool_outputs": data.get("tool_outputs", {}),
+                        }
+                    )
+            except Exception as exc:
+                st.error(f"Could not call chat API: {exc}")
+
+    if st.button("Load Step 2 Summary"):
         try:
-            response = httpx.post(f"{api_base_url}/chat", json=payload, timeout=20.0)
+            response = httpx.get(f"{api_base_url}/debug/summary", timeout=10.0)
+            response.raise_for_status()
+            st.json(response.json())
+        except Exception as exc:
+            st.error(f"Could not load summary: {exc}")
+
+with eval_tab:
+    st.subheader("Golden Set Evaluation")
+    max_cases = st.number_input("Max cases (0 = all)", min_value=0, max_value=100, value=0, step=1)
+    if st.button("Run Eval"):
+        try:
+            payload = {}
+            if max_cases > 0:
+                payload["max_cases"] = int(max_cases)
+            response = httpx.post(f"{api_base_url}/eval/run", json=payload, timeout=120.0)
             response.raise_for_status()
             data = response.json()
 
-            st.success("Response received")
-            st.write(f"Architecture: {data.get('architecture', architecture)}")
-            st.write(f"Answer: {data.get('answer', '')}")
+            st.success("Evaluation completed")
+            st.write(f"Golden set size: {data.get('golden_set_size')}")
 
-            with st.expander("Trace"):
-                st.json(
-                    {
-                        "session_id": data.get("session_id"),
-                        "intent": data.get("intent"),
-                        "intent_reason": data.get("intent_reason"),
-                        "route": data.get("route"),
-                        "guardrail_applied": data.get("guardrail_applied"),
-                        "resolved_category": data.get("resolved_category"),
-                        "resolved_period": data.get("resolved_period"),
-                        "context": data.get("context", {}),
-                        "tools_used": data.get("tools_used", []),
-                        "tool_outputs": data.get("tool_outputs", {}),
-                    }
-                )
+            baseline_summary = data.get("baseline", {}).get("summary", {})
+            crew_summary = data.get("crew", {}).get("summary", {})
+
+            st.markdown("### Summary")
+            st.table(
+                {
+                    "metric": [
+                        "latency_p50",
+                        "latency_p95",
+                        "cost_per_task",
+                        "tokens_per_task",
+                        "success_rate",
+                        "tool_selection_accuracy",
+                        "groundedness",
+                        "inter_agent_overhead_pct",
+                    ],
+                    "baseline": [
+                        baseline_summary.get("latency_p50"),
+                        baseline_summary.get("latency_p95"),
+                        baseline_summary.get("cost_per_task"),
+                        baseline_summary.get("tokens_per_task"),
+                        baseline_summary.get("success_rate"),
+                        baseline_summary.get("tool_selection_accuracy"),
+                        baseline_summary.get("groundedness"),
+                        baseline_summary.get("inter_agent_overhead_pct"),
+                    ],
+                    "crew": [
+                        crew_summary.get("latency_p50"),
+                        crew_summary.get("latency_p95"),
+                        crew_summary.get("cost_per_task"),
+                        crew_summary.get("tokens_per_task"),
+                        crew_summary.get("success_rate"),
+                        crew_summary.get("tool_selection_accuracy"),
+                        crew_summary.get("groundedness"),
+                        crew_summary.get("inter_agent_overhead_pct"),
+                    ],
+                }
+            )
+
+            with st.expander("Baseline case results"):
+                st.json(data.get("baseline", {}).get("cases", []))
+            with st.expander("Crew case results"):
+                st.json(data.get("crew", {}).get("cases", []))
         except Exception as exc:
-            st.error(f"Could not call chat API: {exc}")
-
-if st.button("Load Step 2 Summary"):
-    try:
-        response = httpx.get(f"{api_base_url}/debug/summary", timeout=10.0)
-        response.raise_for_status()
-        st.json(response.json())
-    except Exception as exc:
-        st.error(f"Could not load summary: {exc}")
+            st.error(f"Could not run evaluation: {exc}")
