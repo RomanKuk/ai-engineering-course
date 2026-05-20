@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import httpx
 import streamlit as st
 
 
@@ -20,3 +21,11 @@ if st.button("Submit"):
         st.write("Answer: API wiring comes in the next step.")
         with st.expander("Trace"):
             st.write("No trace yet.")
+
+if st.button("Load Step 2 Summary"):
+    try:
+        response = httpx.get("http://127.0.0.1:8000/debug/summary", timeout=10.0)
+        response.raise_for_status()
+        st.json(response.json())
+    except Exception as exc:
+        st.error(f"Could not load summary: {exc}")
