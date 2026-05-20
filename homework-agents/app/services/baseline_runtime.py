@@ -139,7 +139,14 @@ class BaselineRuntime:
         text = message.lower().strip()
         if "last week" in text or "минулого тижня" in text or "минулий тиждень" in text:
             return "last_week"
-        if "this month" in text or "цього місяця" in text or text == "місяць" or text.startswith("а місяц"):
+        if (
+            "this month" in text
+            or "цього місяця" in text
+            or text == "місяць"
+            or text.startswith("а місяц")
+            or text.startswith("and for the month")
+            or text.startswith("what about the month")
+        ):
             return "current_month"
         return None
 

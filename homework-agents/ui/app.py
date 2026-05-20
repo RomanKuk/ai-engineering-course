@@ -14,7 +14,7 @@ if "session_id" not in st.session_state:
 api_base_url = st.sidebar.text_input("API base URL", value="http://127.0.0.1:8000")
 
 architecture = st.sidebar.selectbox("Architecture", ["baseline", "crew"], index=0)
-st.sidebar.caption("Crew path is a placeholder at this stage.")
+st.sidebar.caption("Baseline and crew paths are both active.")
 st.sidebar.write(f"Session ID: {st.session_state['session_id']}")
 
 if st.sidebar.button("New Session"):

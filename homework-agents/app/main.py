@@ -20,8 +20,9 @@ from app.tools import (
 
 
 app = FastAPI(title="Personal Finance Coach")
-runtime = BaselineRuntime(Path(__file__).resolve().parents[1] / "starter" / "data" / "transactions.csv")
-crew_runtime = CrewRuntime()
+csv_path = Path(__file__).resolve().parents[1] / "starter" / "data" / "transactions.csv"
+runtime = BaselineRuntime(csv_path)
+crew_runtime = CrewRuntime(csv_path)
 
 
 @app.get("/health")
