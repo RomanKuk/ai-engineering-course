@@ -4,6 +4,7 @@ from pathlib import Path
 import uuid
 
 from app.schemas import ChatRequest, ChatResponse, ChatTrace
+from app.services.observability import langsmith_context
 from app.services.intent_router import classify_intent
 from app.services.session_context import SessionContextStore
 from app.tools import (
@@ -43,31 +44,71 @@ class BaselineRuntime:
 
     def handle_chat(self, body: dict) -> dict:
         request = ChatRequest.model_validate(body)
-        architecture = request.architecture
-        message = str(request.message)
-        session_id = str(request.session_id or uuid.uuid4())
+        with langsmith_context(
+            run_name="baseline.chat",
+            tags=["baseline"],
+            metadata={"architecture": request.architecture},
+        ):
+            architecture = request.architecture
+            message = str(request.message)
+            session_id = str(request.session_id or uuid.uuid4())
 
-        context = self.session_store.get(session_id)
-        has_context = context.has_context()
-        intent = classify_intent(message=message, has_context=has_context)
+            context = self.session_store.get(session_id)
+            has_context = context.has_context()
+            intent = classify_intent(message=message, has_context=has_context)
 
-        extracted_category = self._extract_category(message)
-        extracted_period = self._extract_period(message)
-        resolved_category = extracted_category or context.category
-        resolved_period = extracted_period or context.period
+            extracted_category = self._extract_category(message)
+            extracted_period = self._extract_period(message)
+            resolved_category = extracted_category or context.category
+            resolved_period = extracted_period or context.period
 
-        self.session_store.update(
-            session_id,
-            category=resolved_category,
-            period=resolved_period,
-            intent=intent.intent,
-        )
-        updated_context = self.session_store.get(session_id)
+            self.session_store.update(
+                session_id,
+                category=resolved_category,
+                period=resolved_period,
+                intent=intent.intent,
+            )
+            updated_context = self.session_store.get(session_id)
 
-        if intent.intent in GUARDRAIL_INTENTS:
+            if intent.intent in GUARDRAIL_INTENTS:
+                payload = {
+                    "architecture": architecture,
+                    "answer": self._guardrail_answer(intent.intent),
+                    "echo": message,
+                    "session_id": session_id,
+                    "intent": intent.intent,
+                    "intent_reason": intent.reason,
+                    "resolved_category": resolved_category,
+                    "resolved_period": resolved_period,
+                    "context": updated_context.to_dict(),
+                    "route": "guardrail",
+                    "guardrail_applied": True,
+                    "tools_used": [],
+                    "tool_outputs": {},
+                }
+                payload["trace"] = ChatTrace(
+                    intent=payload["intent"],
+                    intent_reason=payload["intent_reason"],
+                    route=payload["route"],
+                    guardrail_applied=payload["guardrail_applied"],
+                    resolved_category=payload["resolved_category"],
+                    resolved_period=payload["resolved_period"],
+                    context=payload["context"],
+                    tools_used=payload["tools_used"],
+                    tool_outputs=payload["tool_outputs"],
+                ).model_dump()
+                return ChatResponse.model_validate(payload).model_dump()
+
+            answer, tools_used, tool_outputs = self._baseline_response(
+                intent=intent.intent,
+                message=message,
+                resolved_category=resolved_category,
+                resolved_period=resolved_period,
+            )
+
             payload = {
                 "architecture": architecture,
-                "answer": self._guardrail_answer(intent.intent),
+                "answer": answer,
                 "echo": message,
                 "session_id": session_id,
                 "intent": intent.intent,
@@ -75,10 +116,10 @@ class BaselineRuntime:
                 "resolved_category": resolved_category,
                 "resolved_period": resolved_period,
                 "context": updated_context.to_dict(),
-                "route": "guardrail",
-                "guardrail_applied": True,
-                "tools_used": [],
-                "tool_outputs": {},
+                "route": "baseline",
+                "guardrail_applied": False,
+                "tools_used": tools_used,
+                "tool_outputs": tool_outputs,
             }
             payload["trace"] = ChatTrace(
                 intent=payload["intent"],
@@ -92,41 +133,6 @@ class BaselineRuntime:
                 tool_outputs=payload["tool_outputs"],
             ).model_dump()
             return ChatResponse.model_validate(payload).model_dump()
-
-        answer, tools_used, tool_outputs = self._baseline_response(
-            intent=intent.intent,
-            message=message,
-            resolved_category=resolved_category,
-            resolved_period=resolved_period,
-        )
-
-        payload = {
-            "architecture": architecture,
-            "answer": answer,
-            "echo": message,
-            "session_id": session_id,
-            "intent": intent.intent,
-            "intent_reason": intent.reason,
-            "resolved_category": resolved_category,
-            "resolved_period": resolved_period,
-            "context": updated_context.to_dict(),
-            "route": "baseline",
-            "guardrail_applied": False,
-            "tools_used": tools_used,
-            "tool_outputs": tool_outputs,
-        }
-        payload["trace"] = ChatTrace(
-            intent=payload["intent"],
-            intent_reason=payload["intent_reason"],
-            route=payload["route"],
-            guardrail_applied=payload["guardrail_applied"],
-            resolved_category=payload["resolved_category"],
-            resolved_period=payload["resolved_period"],
-            context=payload["context"],
-            tools_used=payload["tools_used"],
-            tool_outputs=payload["tool_outputs"],
-        ).model_dump()
-        return ChatResponse.model_validate(payload).model_dump()
 
     def _extract_category(self, message: str) -> str | None:
         text = message.lower()

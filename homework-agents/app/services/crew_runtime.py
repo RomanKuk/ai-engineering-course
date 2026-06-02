@@ -4,6 +4,7 @@ import json
 import uuid
 
 from app.schemas import ChatRequest, ChatResponse, ChatTrace
+from app.services.observability import langsmith_context
 from app.services.intent_router import classify_intent
 from app.services.session_context import SessionContextStore
 from app.tools import (
@@ -42,36 +43,83 @@ class CrewRuntime:
 
     def handle_chat(self, body: dict) -> dict:
         request = ChatRequest.model_validate(body)
-        message = str(request.message)
-        session_id = str(request.session_id or uuid.uuid4())
+        with langsmith_context(
+            run_name="crew.chat",
+            tags=["crew"],
+            metadata={"architecture": "crew"},
+        ):
+            message = str(request.message)
+            session_id = str(request.session_id or uuid.uuid4())
 
-        context = self.session_store.get(session_id)
-        has_context = context.has_context()
+            context = self.session_store.get(session_id)
+            has_context = context.has_context()
 
-        router = self._router_step(message=message, has_context=has_context, context=context)
-        intent = router["intent"]
-        intent_reason = router["intent_reason"]
-        resolved_category = router["resolved_category"]
-        resolved_period = router["resolved_period"]
+            router = self._router_step(message=message, has_context=has_context, context=context)
+            intent = router["intent"]
+            intent_reason = router["intent_reason"]
+            resolved_category = router["resolved_category"]
+            resolved_period = router["resolved_period"]
 
-        self.session_store.update(
-            session_id,
-            category=resolved_category,
-            period=resolved_period,
-            intent=intent,
-        )
-        updated_context = self.session_store.get(session_id)
-
-        if intent in GUARDRAIL_INTENTS:
-            metrics = self._crew_metrics(
-                message=message,
-                router=router,
-                analyst={"agent": "analyst", "tools_used": [], "facts": {}},
-                coach={"agent": "coach", "answer": self._guardrail_answer(intent)},
+            self.session_store.update(
+                session_id,
+                category=resolved_category,
+                period=resolved_period,
+                intent=intent,
             )
+            updated_context = self.session_store.get(session_id)
+
+            if intent in GUARDRAIL_INTENTS:
+                metrics = self._crew_metrics(
+                    message=message,
+                    router=router,
+                    analyst={"agent": "analyst", "tools_used": [], "facts": {}},
+                    coach={"agent": "coach", "answer": self._guardrail_answer(intent)},
+                )
+                payload = {
+                    "architecture": "crew",
+                    "answer": self._guardrail_answer(intent),
+                    "echo": message,
+                    "session_id": session_id,
+                    "intent": intent,
+                    "intent_reason": intent_reason,
+                    "resolved_category": resolved_category,
+                    "resolved_period": resolved_period,
+                    "context": updated_context.to_dict(),
+                    "route": "guardrail",
+                    "guardrail_applied": True,
+                    "tools_used": [],
+                    "tool_outputs": {
+                        "router": router,
+                        "analyst": {},
+                        "coach": {},
+                        "crew_metrics": metrics,
+                    },
+                }
+                payload["trace"] = ChatTrace(
+                    intent=payload["intent"],
+                    intent_reason=payload["intent_reason"],
+                    route=payload["route"],
+                    guardrail_applied=payload["guardrail_applied"],
+                    resolved_category=payload["resolved_category"],
+                    resolved_period=payload["resolved_period"],
+                    context=payload["context"],
+                    tools_used=payload["tools_used"],
+                    tool_outputs=payload["tool_outputs"],
+                ).model_dump()
+                return ChatResponse.model_validate(payload).model_dump()
+
+            analyst = self._analyst_step(
+                intent=intent,
+                message=message,
+                resolved_category=resolved_category,
+                resolved_period=resolved_period,
+            )
+            coach = self._coach_step(intent=intent, analyst=analyst)
+            metrics = self._crew_metrics(message=message, router=router, analyst=analyst, coach=coach)
+
             payload = {
                 "architecture": "crew",
-                "answer": self._guardrail_answer(intent),
+                "answer": coach["answer"],
                 "echo": message,
                 "session_id": session_id,
                 "intent": intent,
@@ -79,16 +127,17 @@ class CrewRuntime:
                 "resolved_category": resolved_category,
                 "resolved_period": resolved_period,
                 "context": updated_context.to_dict(),
-                "route": "guardrail",
-                "guardrail_applied": True,
-                "tools_used": [],
+                "route": "crew",
+                "guardrail_applied": False,
+                "tools_used": analyst["tools_used"],
                 "tool_outputs": {
                     "router": router,
-                    "analyst": {},
-                    "coach": {},
+                    "analyst": analyst,
+                    "coach": coach,
                     "crew_metrics": metrics,
                 },
             }
+
             payload["trace"] = ChatTrace(
                 intent=payload["intent"],
                 intent_reason=payload["intent_reason"],
@@ -101,49 +150,6 @@ class CrewRuntime:
                 tool_outputs=payload["tool_outputs"],
             ).model_dump()
             return ChatResponse.model_validate(payload).model_dump()
-
-        analyst = self._analyst_step(
-            intent=intent,
-            message=message,
-            resolved_category=resolved_category,
-            resolved_period=resolved_period,
-        )
-        coach = self._coach_step(intent=intent, analyst=analyst)
-        metrics = self._crew_metrics(message=message, router=router, analyst=analyst, coach=coach)
-
-        payload = {
-            "architecture": "crew",
-            "answer": coach["answer"],
-            "echo": message,
-            "session_id": session_id,
-            "intent": intent,
-            "intent_reason": intent_reason,
-            "resolved_category": resolved_category,
-            "resolved_period": resolved_period,
-            "context": updated_context.to_dict(),
-            "route": "crew",
-            "guardrail_applied": False,
-            "tools_used": analyst["tools_used"],
-            "tool_outputs": {
-                "router": router,
-                "analyst": analyst,
-                "coach": coach,
-                "crew_metrics": metrics,
-            },
-        }
-
-        payload["trace"] = ChatTrace(
-            intent=payload["intent"],
-            intent_reason=payload["intent_reason"],
-            route=payload["route"],
-            guardrail_applied=payload["guardrail_applied"],
-            resolved_category=payload["resolved_category"],
-            resolved_period=payload["resolved_period"],
-            context=payload["context"],
-            tools_used=payload["tools_used"],
-            tool_outputs=payload["tool_outputs"],
-        ).model_dump()
-        return ChatResponse.model_validate(payload).model_dump()
 
     def _router_step(self, *, message: str, has_context: bool, context) -> dict:
         result = classify_intent(message=message, has_context=has_context)

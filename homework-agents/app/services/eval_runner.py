@@ -5,6 +5,8 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any, Optional
 
+from app.services.observability import langsmith_context
+
 
 def _flatten_numbers(value: Any) -> list[float]:
     numbers: list[float] = []
@@ -46,17 +48,18 @@ class EvalRunner:
         return json.loads(self.golden_path.read_text(encoding="utf-8"))
 
     def run(self, max_cases: Optional[int] = None) -> dict:
-        cases = self.load_golden_set()
-        if max_cases is not None:
-            cases = cases[: max(1, max_cases)]
+        with langsmith_context(run_name="eval.run", tags=["eval"], metadata={"max_cases": max_cases}):
+            cases = self.load_golden_set()
+            if max_cases is not None:
+                cases = cases[: max(1, max_cases)]
 
-        baseline = self._run_architecture("baseline", cases)
-        crew = self._run_architecture("crew", cases)
-        return {
-            "golden_set_size": len(cases),
-            "baseline": baseline,
-            "crew": crew,
-        }
+            baseline = self._run_architecture("baseline", cases)
+            crew = self._run_architecture("crew", cases)
+            return {
+                "golden_set_size": len(cases),
+                "baseline": baseline,
+                "crew": crew,
+            }
 
     def _run_architecture(self, architecture: str, cases: list[dict]) -> dict:
         runtime = self.baseline_runtime if architecture == "baseline" else self.crew_runtime
