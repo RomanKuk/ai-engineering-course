@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from langsmith import Client
 from langsmith.evaluation import evaluate
@@ -15,8 +16,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from app.core.config import get_settings
 from app.services.baseline_runtime import BaselineRuntime
 from app.services.crew_runtime import CrewRuntime
+from app.services.eval_runner import EvalRunner
 
 
 def _flatten_numbers(value: Any) -> list[float]:
@@ -39,11 +42,95 @@ def _extract_answer_numbers(answer: str) -> list[float]:
     return [float(v) for v in values]
 
 
-def _load_golden_set(golden_path: Path, max_cases: int | None = None) -> list[dict[str, Any]]:
+def _load_golden_set(golden_path: Path, max_cases: Optional[int] = None) -> list[dict[str, Any]]:
     data = json.loads(golden_path.read_text(encoding="utf-8"))
     if max_cases is not None:
         return data[: max(1, max_cases)]
     return data
+
+
+def _write_cases_csv(file_path: Path, cases: list[dict[str, Any]]) -> None:
+    headers = [
+        "id",
+        "message",
+        "expected_intent",
+        "actual_intent",
+        "expected_route",
+        "actual_route",
+        "latency_ms",
+        "success",
+        "tool_selection_ok",
+        "groundedness",
+        "required_tools",
+        "tools_used",
+    ]
+    with file_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=headers)
+        writer.writeheader()
+        for case in cases:
+            row = dict(case)
+            row["required_tools"] = "|".join(str(item) for item in case.get("required_tools", []))
+            row["tools_used"] = "|".join(str(item) for item in case.get("tools_used", []))
+            writer.writerow({key: row.get(key, "") for key in headers})
+
+
+def _build_report_snippet(summary: dict[str, Any], artifact_dir: Path) -> str:
+    baseline_summary = summary["local_eval"]["baseline"]["summary"]
+    crew_summary = summary["local_eval"]["crew"]["summary"]
+    lines = [
+        "## LangSmith Run Snapshot",
+        "",
+        f"- Dataset: `{summary['dataset_name']}`",
+        f"- Golden set size: `{summary['golden_set_size']}`",
+        f"- Baseline experiment: `{summary['baseline_experiment']}`",
+        f"- Crew experiment: `{summary['crew_experiment']}`",
+        "",
+        "### Local Summary Cross-Check",
+        "",
+        "| Metric | Baseline | Crew |",
+        "| --- | ---: | ---: |",
+        f"| latency_p50 | {baseline_summary['latency_p50']} | {crew_summary['latency_p50']} |",
+        f"| latency_p95 | {baseline_summary['latency_p95']} | {crew_summary['latency_p95']} |",
+        f"| cost_per_task | {baseline_summary['cost_per_task']} | {crew_summary['cost_per_task']} |",
+        f"| tokens_per_task | {baseline_summary['tokens_per_task']} | {crew_summary['tokens_per_task']} |",
+        f"| success_rate | {baseline_summary['success_rate']} | {crew_summary['success_rate']} |",
+        f"| tool_selection_accuracy | {baseline_summary['tool_selection_accuracy']} | {crew_summary['tool_selection_accuracy']} |",
+        f"| groundedness | {baseline_summary['groundedness']} | {crew_summary['groundedness']} |",
+        f"| inter_agent_overhead_pct | {baseline_summary['inter_agent_overhead_pct']} | {crew_summary['inter_agent_overhead_pct']} |",
+        "",
+        "Artifacts:",
+        f"- `{artifact_dir / 'langsmith_summary.json'}`",
+        f"- `{artifact_dir / 'baseline_cases.csv'}`",
+        f"- `{artifact_dir / 'crew_cases.csv'}`",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def _write_artifacts(
+    artifact_dir: Path,
+    dataset_name: str,
+    baseline_experiment: str,
+    crew_experiment: str,
+    local_eval: dict[str, Any],
+) -> Path:
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    summary = {
+        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "dataset_name": dataset_name,
+        "golden_set_size": local_eval["golden_set_size"],
+        "baseline_experiment": baseline_experiment,
+        "crew_experiment": crew_experiment,
+        "local_eval": local_eval,
+    }
+
+    summary_path = artifact_dir / "langsmith_summary.json"
+    summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    _write_cases_csv(artifact_dir / "baseline_cases.csv", local_eval["baseline"]["cases"])
+    _write_cases_csv(artifact_dir / "crew_cases.csv", local_eval["crew"]["cases"])
+
+    report_snippet = _build_report_snippet(summary, artifact_dir)
+    (artifact_dir / "report_snippet.md").write_text(report_snippet, encoding="utf-8")
+    return summary_path
 
 
 def _sync_dataset(client: Client, dataset_name: str, cases: list[dict[str, Any]]) -> None:
@@ -154,22 +241,34 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run LangSmith experiments for baseline vs crew")
     parser.add_argument("--dataset-name", default="personal-finance-golden-set", help="LangSmith dataset name")
     parser.add_argument("--max-cases", type=int, default=None, help="Limit number of cases")
+    parser.add_argument(
+        "--artifact-dir",
+        default=str(ROOT / "var" / "langsmith"),
+        help="Directory for JSON, CSV, and report snippet artifacts",
+    )
     args = parser.parse_args()
 
-    if not os.getenv("LANGSMITH_API_KEY"):
+    settings = get_settings()
+    if not settings.langsmith_api_key:
         print("LANGSMITH_API_KEY is required.")
         return 1
+
+    # Ensure the experiment process uses the configured LangSmith workspace and enables nested traces.
+    os.environ["LANGSMITH_API_KEY"] = settings.langsmith_api_key
+    os.environ["LANGSMITH_PROJECT"] = settings.langsmith_project
+    os.environ["LANGSMITH_TRACING"] = "true"
 
     root = Path(__file__).resolve().parents[1]
     golden_path = root / "evals" / "golden_set.json"
     csv_path = root / "starter" / "data" / "transactions.csv"
     cases = _load_golden_set(golden_path, max_cases=args.max_cases)
 
-    client = Client()
+    client = Client(api_key=settings.langsmith_api_key)
     _sync_dataset(client, dataset_name=args.dataset_name, cases=cases)
 
     baseline_runtime = BaselineRuntime(csv_path)
     crew_runtime = CrewRuntime(csv_path)
+    eval_runner = EvalRunner(golden_path, baseline_runtime=baseline_runtime, crew_runtime=crew_runtime)
 
     evaluators = [
         _intent_match,
@@ -205,10 +304,20 @@ def main() -> int:
     )
     crew_results.wait()
 
+    local_eval = eval_runner.run(max_cases=args.max_cases)
+    summary_path = _write_artifacts(
+        artifact_dir=Path(args.artifact_dir),
+        dataset_name=args.dataset_name,
+        baseline_experiment=baseline_results.experiment_name,
+        crew_experiment=crew_results.experiment_name,
+        local_eval=local_eval,
+    )
+
     print("LangSmith experiments completed.")
     print(f"Dataset: {args.dataset_name}")
     print(f"Baseline experiment: {baseline_results.experiment_name}")
     print(f"Crew experiment: {crew_results.experiment_name}")
+    print(f"Summary artifact: {summary_path}")
     print("Open LangSmith project view to compare experiments side by side.")
     return 0
 

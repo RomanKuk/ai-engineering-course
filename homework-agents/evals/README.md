@@ -25,7 +25,20 @@ Optional:
 python scripts/run_langsmith_experiments.py --dataset-name personal-finance-golden-set --max-cases 15
 ```
 
+Custom artifact directory:
+
+```bash
+python scripts/run_langsmith_experiments.py --dataset-name personal-finance-golden-set --artifact-dir var/langsmith
+```
+
 Required env vars:
 
 - `LANGSMITH_API_KEY`
 - `LANGSMITH_PROJECT` (defaults to `personal-finance-coach` from app settings)
+
+Artifacts written after a successful run:
+
+- `var/langsmith/langsmith_summary.json`
+- `var/langsmith/baseline_cases.csv`
+- `var/langsmith/crew_cases.csv`
+- `var/langsmith/report_snippet.md`
