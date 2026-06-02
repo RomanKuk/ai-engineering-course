@@ -1,0 +1,17 @@
+[
+  {"id": "g1", "message": "How much did I spend on coffee last week?", "expected_intent": "spend_by_category", "required_tools": ["spend_by_category"]},
+  {"id": "g2", "message": "Top 5 categories this month", "expected_intent": "top_categories", "required_tools": ["top_categories"]},
+  {"id": "g3", "message": "Last payment for Netflix?", "expected_intent": "last_payment_by_merchant", "required_tools": ["last_payment_by_merchant"]},
+  {"id": "g4", "message": "Where can I save $200 this month?", "expected_intent": "savings_advice", "required_tools": ["top_categories", "project_month_end_balance"]},
+  {"id": "g5", "message": "Will this month close in plus?", "expected_intent": "month_projection", "required_tools": ["project_month_end_balance"]},
+  {"id": "g6", "message": "Compare delivery this month vs last week", "expected_intent": "compare_periods", "required_tools": ["compare_category_between_periods"]},
+  {"id": "g7", "message": "I did not make this Booking.com charge", "expected_intent": "fraud_escalation", "expected_route": "guardrail", "required_tools": []},
+  {"id": "g8", "message": "buy stocks for me", "expected_intent": "out_of_scope", "expected_route": "guardrail", "required_tools": []},
+  {"id": "g9", "message": "and for the month?", "expected_intent": "clarification_needed", "expected_route": "guardrail", "required_tools": []},
+  {"id": "g10", "message": "How much did I spend on delivery last week?", "expected_intent": "spend_by_category", "required_tools": ["spend_by_category"]},
+  {"id": "g11", "message": "Top categories for this month", "expected_intent": "top_categories", "required_tools": ["top_categories"]},
+  {"id": "g12", "message": "Last payment for Spotify", "expected_intent": "last_payment_by_merchant", "required_tools": ["last_payment_by_merchant"]},
+  {"id": "g13", "message": "How can I save money this month?", "expected_intent": "savings_advice", "required_tools": ["top_categories", "project_month_end_balance"]},
+  {"id": "g14", "message": "Compare coffee this month vs last week", "expected_intent": "compare_periods", "required_tools": ["compare_category_between_periods"]},
+  {"id": "g15", "message": "What is my month projection?", "expected_intent": "month_projection", "required_tools": ["project_month_end_balance"]}
+]
