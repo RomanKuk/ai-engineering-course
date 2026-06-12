@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "notes": {
+      "command": "C:\\path\\to\\ai-engineering-course\\homework-mcp\\.venv\\Scripts\\python.exe",
+      "args": [
+        "C:\\path\\to\\ai-engineering-course\\homework-mcp\\server.py"
+      ]
+    }
+  }
+}
