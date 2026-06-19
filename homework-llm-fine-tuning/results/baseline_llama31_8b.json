@@ -1,0 +1,13 @@
+{
+  "label": "Llama-3.1-8B-Instruct (base, no fine-tuning)",
+  "n_examples": 30,
+  "json_valid_rate": 0.9333,
+  "exact_match_rate": 0.3333,
+  "field_accuracy": {
+    "customer_name": 0.9333,
+    "product": 0.8667,
+    "issue_category": 0.8333,
+    "urgency": 0.5,
+    "summary": 0.4667
+  }
+}
